@@ -121,10 +121,10 @@ static void tx_task(void *arg)
             // Transform signed values in range -512..511 to 0..1023
             // AETR1234, AER - MID, T - MIN
 
-            int16_t stick_lx  =  gamepad_data.axis_x + 512;
+            int16_t stick_lx  =  (((gamepad_data.axis_x + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             // int16_t stick_ly =  gamepad_data.axis_y + 512;
-            int16_t stick_rx  = gamepad_data.axis_rx + 512;
-            int16_t stick_ry  = gamepad_data.axis_ry + 512;
+            int16_t stick_rx  = (((gamepad_data.axis_rx + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
+            int16_t stick_ry  = (((gamepad_data.axis_ry + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             uint32_t throttle = ((gamepad_data.throttle * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             // uint32_t brake =    ((gamepad_data.brake    * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             channel[0] = (uint32_t)stick_rx; // Roll    [A]
