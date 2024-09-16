@@ -12,6 +12,7 @@
 #include "driver/uart.h"
 #include "string.h"
 #include "driver/gpio.h"
+#include "esp_timer.h"
 
 // bluepad32
 #include <stdlib.h>
@@ -36,7 +37,7 @@
 
 static const char *TAG = "main";
 
-// Defined in my_platform.c
+// Defined in gamepad.c
 struct uni_platform* get_my_platform(void);
 
 static const int RX_BUF_SIZE = 1024;
@@ -49,6 +50,22 @@ static const int RX_BUF_SIZE = 1024;
 
 QueueHandle_t gamepad_queue;
 uni_gamepad_t gamepad_data;
+
+struct misc_btn_state_hold {
+    bool sys;
+    bool sel;
+    bool sta;
+};
+
+struct misc_btn_state_hold state_hold = {false};
+
+struct controller_state {
+    bool armed;
+    bool angle;
+};
+
+struct controller_state ctrl_state = {false, false};
+
 
 void init_gamepad_queue() {
     gamepad_queue = xQueueCreate(QUEUE_LENGTH, QUEUE_ITEM_SIZE);
@@ -82,11 +99,25 @@ int sendData(const char* logName, const uint8_t* data, const int len)
     return txBytes;
 }
 
+uint8_t get_misc_state(uint8_t misc_buttons, uint8_t btn_mask) {
+    static uint8_t prev_state = 0;
+    static uint8_t state = 0;
+    if ((misc_buttons & btn_mask) && !(prev_state & btn_mask)) { // check is prev was cleared
+        state ^= btn_mask;
+        prev_state |= btn_mask; // set bit
+    } else if (!(misc_buttons & btn_mask) && (prev_state & btn_mask)) { // check is prev was set
+        prev_state &= ~btn_mask; // clear bit
+    }
+
+    return (state & btn_mask) ? 1 : 0 ;
+}
+
 static void tx_task(void *arg)
 {
     static const char *TX_TASK_TAG = "TX_TASK";
     esp_log_level_set(TX_TASK_TAG, ESP_LOG_INFO);
     static uint8_t rc_channels_buf[CRSF_FRAME_SIZE_RC] = {0};
+    
     /**
      * init channels to default values: AETR1234, AER - MID, T - MIN
      * Roll[A] - MID
@@ -121,16 +152,34 @@ static void tx_task(void *arg)
             // Transform signed values in range -512..511 to 0..1023
             // AETR1234, AER - MID, T - MIN
 
+            /**
+             * compensate center stick drift 
+             */
+
             int16_t stick_lx  =  (((gamepad_data.axis_x + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             // int16_t stick_ly =  gamepad_data.axis_y + 512;
             int16_t stick_rx  = (((gamepad_data.axis_rx + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             int16_t stick_ry  = (((gamepad_data.axis_ry + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             uint32_t throttle = ((gamepad_data.throttle * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
+            
+            ctrl_state.armed = get_misc_state(gamepad_data.misc_buttons, MISC_BUTTON_SYSTEM);
+            ctrl_state.angle = get_misc_state(gamepad_data.misc_buttons, MISC_BUTTON_SELECT);
             // uint32_t brake =    ((gamepad_data.brake    * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             channel[0] = (uint32_t)stick_rx; // Roll    [A]
             channel[1] = (uint32_t)stick_ry; // Pitch   [E]
             channel[2] = throttle;           // Throttle[T]
             channel[3] = (uint32_t)stick_lx; // Yaw     [R]
+            channel[4] = ctrl_state.armed ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN; // AUX 1
+            channel[5] = ctrl_state.angle ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN; // AUX 2
+            /**
+             * add new channels here
+             */
+            #if 0
+                printf("Gamepad: rx: %03ld, ry: %03ld, sys: %u, sel: %u, all: %u\n",
+                gamepad_data.axis_rx, gamepad_data.axis_ry, gamepad_data.misc_buttons & MISC_BUTTON_SYSTEM, gamepad_data.misc_buttons & MISC_BUTTON_SELECT,
+                gamepad_data.misc_buttons);
+            #endif
+            
             /*
             Add additional channels if needed
             */
@@ -190,6 +239,6 @@ void app_main(void)
     init();
     init_gamepad_queue(); // Ensure the queue is initialized before creating tasks
     // xTaskCreate(rx_task, "uart_rx_task", 1024 * 2, NULL, configMAX_PRIORITIES - 1, NULL);
-    xTaskCreate(tx_task, "uart_tx_task", 1024 * 2, NULL, configMAX_PRIORITIES - 2, NULL);
+    xTaskCreate(tx_task, "uart_tx_task", 1024 * 4, NULL, configMAX_PRIORITIES - 2, NULL);
     xTaskCreate(bt_task, "bt_gpad_task", 1024 * 5, NULL, configMAX_PRIORITIES - 2, NULL);
 }
