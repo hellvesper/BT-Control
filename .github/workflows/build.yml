@@ -1,0 +1,23 @@
+on:
+  push:
+    branches: [ dev ]
+  pull_request:
+    branches: [ $default-branch ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v2
+      with:
+        submodules: 'recursive'
+    - name: esp-idf build
+      uses: espressif/esp-idf-ci-action@v1.1.0
+      with:
+        esp_idf_version: v5.3.1
+        target: esp32
+        path: 'BT-Control'
+
