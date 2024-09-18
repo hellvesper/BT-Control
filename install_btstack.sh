@@ -1,6 +1,6 @@
 #!/bin/sh
 
-export BLUEPAD32="$(pwd)/components/bluepad32"
+export BLUEPAD32="$(pwd)/../components/bluepad32"
 
 cd ${BLUEPAD32}/external/btstack/port/esp32
 # This will install BTstack as a component inside Bluepad32 source code (recommended).
