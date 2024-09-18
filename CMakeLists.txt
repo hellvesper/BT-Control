@@ -2,11 +2,14 @@
 # in this exact order for cmake to work correctly
 cmake_minimum_required(VERSION 3.16)
 
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
+execute_process(COMMAND ${CMAKE_COMMAND} -E env bash ${CMAKE_CURRENT_SOURCE_DIR}/install_btstack.sh)
+
 set(BLUEPAD32_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/components/bluepad32)
-# set(BLUEPAD32_ROOT /Users/vesper/Develop/mcpwm_bdc_speed_control/components/bluepad32)
+
 set(BTSTACK_ROOT ${BLUEPAD32_ROOT}/external/btstack)
 
 set(EXTRA_COMPONENT_DIRS ${BLUEPAD32_ROOT}/src/components)

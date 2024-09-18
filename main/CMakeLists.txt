@@ -1,4 +1,4 @@
-set(srcs "uart_async_rxtxtasks_main.c" "gamepad.c" "crsf.c" "crc.c")
+set(srcs "main.c" "gamepad.c" "crsf.c" "crc.c")
 
 set(requires "bluepad32" "btstack")
 
