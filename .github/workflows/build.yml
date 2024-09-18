@@ -1,6 +1,6 @@
 on:
   push:
-    branches: [ dev, ci_dev ]
+    branches: [ dev ]
   pull_request:
     branches: [ $default-branch ]
 

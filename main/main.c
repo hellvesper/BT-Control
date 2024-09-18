@@ -66,6 +66,53 @@ struct controller_state {
 
 struct controller_state ctrl_state = {false, false};
 
+typedef enum {
+    GP_LX,
+    GP_LY,
+    GP_RX,
+    GP_RY,
+    GP_LT,
+    GP_RT
+} joystick_axis_t;
+
+typedef struct {
+    int16_t neg_lx;
+    int16_t pos_lx;
+    int16_t neg_ly;
+    int16_t pos_ly;
+    int16_t neg_rx;
+    int16_t pos_rx;
+    int16_t neg_ry;
+    int16_t pos_ry;
+    int16_t neg_lt;
+    int16_t pos_lt;
+    int16_t neg_rt;
+    int16_t pos_rt;
+} __attribute__ ((__packed__)) joystick_drift_t;
+
+typedef union {
+    joystick_drift_t drift;
+    int16_t array[sizeof(joystick_drift_t) / sizeof(int16_t)];
+} joystick_drift_union_t;
+
+// set drift values
+joystick_drift_union_t joystick_drift = {
+    .drift = {
+        .neg_lx = -40,
+        .pos_lx = 40,
+        .neg_ly = -40,
+        .pos_ly = 40,
+        .neg_rx = -10,
+        .pos_rx = 60,
+        .neg_ry = -20,
+        .pos_ry = 20,
+        .neg_lt = 0,
+        .pos_lt = 0,
+        .neg_rt = 0,
+        .pos_rt = 0,
+    }
+};
+
 
 void init_gamepad_queue() {
     gamepad_queue = xQueueCreate(QUEUE_LENGTH, QUEUE_ITEM_SIZE);
@@ -99,6 +146,37 @@ int sendData(const char* logName, const uint8_t* data, const int len)
     return txBytes;
 }
 
+/**
+ * Accept gamepad analog stick value and apply drift value to it, 
+ * then normalize / rescale to fill range
+ * 
+ * @param input: gamepad value
+ * @param AXIS: enum gamepad axis constant
+ * @return compensated scaled value
+ */
+int32_t compensate_drift(const int32_t input, const joystick_axis_t AXIS) {
+    int16_t neg_drift_thr = joystick_drift.array[AXIS * 2];
+    int16_t pos_drift_thr = joystick_drift.array[AXIS * 2 + 1];
+    if (input > neg_drift_thr && input < pos_drift_thr) {
+        return 0;
+    }
+    if (input >= pos_drift_thr) {
+        return ((input - pos_drift_thr) * 511) / (511 - pos_drift_thr);
+    }
+    if (input <= neg_drift_thr) {
+        return ((input - neg_drift_thr) * 512) / (512 + neg_drift_thr);
+    }
+    return input; // this line should never reached
+}
+
+/**
+ * Hold toggle state of buttons, change state only after crossing through zero value
+ * so duplicate events can't flip toggle
+ * 
+ * @param misc_buttons bit mask coded states of misc buttons
+ * @param btn_mask bit mask of specific button to deal with
+ * @return state of toggle associated with button 1 | 0
+ */
 uint8_t get_misc_state(uint8_t misc_buttons, uint8_t btn_mask) {
     static uint8_t prev_state = 0;
     static uint8_t state = 0;
@@ -110,6 +188,10 @@ uint8_t get_misc_state(uint8_t misc_buttons, uint8_t btn_mask) {
     }
 
     return (state & btn_mask) ? 1 : 0 ;
+}
+
+int32_t invert_axis(int32_t axis) {
+    return -axis;
 }
 
 static void tx_task(void *arg)
@@ -156,19 +238,19 @@ static void tx_task(void *arg)
              * compensate center stick drift 
              */
 
-            int16_t stick_lx  =  (((gamepad_data.axis_x + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
+            uint32_t stick_lx  = (((compensate_drift(gamepad_data.axis_x, GP_LX) + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             // int16_t stick_ly =  gamepad_data.axis_y + 512;
-            int16_t stick_rx  = (((gamepad_data.axis_rx + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
-            int16_t stick_ry  = (((gamepad_data.axis_ry + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
+            uint32_t stick_rx  = (((compensate_drift(gamepad_data.axis_rx, GP_RX) + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
+            uint32_t stick_ry  = (((compensate_drift(invert_axis(gamepad_data.axis_ry), GP_RY) + 512) * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             uint32_t throttle = ((gamepad_data.throttle * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
             
             ctrl_state.armed = get_misc_state(gamepad_data.misc_buttons, MISC_BUTTON_SYSTEM);
             ctrl_state.angle = get_misc_state(gamepad_data.misc_buttons, MISC_BUTTON_SELECT);
             // uint32_t brake =    ((gamepad_data.brake    * (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MIN)) / 1023) + CRSF_CHANNEL_MIN;
-            channel[0] = (uint32_t)stick_rx; // Roll    [A]
-            channel[1] = (uint32_t)stick_ry; // Pitch   [E]
-            channel[2] = throttle;           // Throttle[T]
-            channel[3] = (uint32_t)stick_lx; // Yaw     [R]
+            channel[0] = stick_rx; // Roll    [A]
+            channel[1] = stick_ry; // Pitch   [E]
+            channel[2] = throttle; // Throttle[T]
+            channel[3] = stick_lx; // Yaw     [R]
             channel[4] = ctrl_state.armed ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN; // AUX 1
             channel[5] = ctrl_state.angle ? CRSF_CHANNEL_MAX : CRSF_CHANNEL_MIN; // AUX 2
             /**
