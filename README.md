@@ -3,6 +3,9 @@ This is simple Bluetooth CRSF receiver to control Flight Controllers with regula
 | Supported Targets | ESP32 | 
 | ----------------- | ----- | 
 
+[![.github/workflows/build.yml](https://github.com/hellvesper/BT-Control/actions/workflows/build.yml/badge.svg)](https://github.com/hellvesper/BT-Control/actions/workflows/build.yml)
+
+
 Note: ESP32S3 support only BLE gamepads, for example DualSense doesn't support BLE and don't with ESP32S3, look at espressif docs and bluepad32 project for supported hardware.
 
 ## To Install
